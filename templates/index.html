@@ -13,6 +13,13 @@
 
   <!-- Full-screen map built by Folium in app.py -->
   <div id="map-container">{{ map_html | safe }}</div>
+  <!-- Loading overlay shown while route is being calculated -->
+  <div id="map-loading" class="hidden">
+    <div class="loading-box">
+      <i class="fa fa-spinner fa-spin"></i>
+      <span id="txt-loading">Calculating route...</span>
+    </div>
+  </div>
 
   <!-- Floating note over the map (top-right) -->
   <div id="map-note">🌐 Map labels are shown in English regardless of selected language</div>
@@ -69,6 +76,7 @@
     </div>
 
     <button id="go-btn"><i class="fa fa-route"></i> <span id="txt-get-route">Get Route</span></button>
+    <button id="clear-btn"><i class="fa fa-rotate-left"></i> <span id="txt-clear">Clear</span></button>
 
     <!-- Result stats — hidden until a route is returned -->
     <div id="result" class="hidden">
@@ -84,6 +92,26 @@
     // ── App state ──
     let mode = "driving", useKm = false, distKm, distMi, currentLang = "en";
     const chosen = {}; // Stores pre-resolved lat/lon when user picks an autocomplete suggestion
+
+    // ── Clear / Reset button ──
+    document.getElementById("clear-btn").addEventListener("click", async () => {
+      // Clear inputs
+      document.getElementById("origin").value = "";
+      document.getElementById("destination").value = "";
+      // Clear saved autocomplete coords
+      chosen.origin = null;
+      chosen.destination = null;
+      // Hide results and errors
+      document.getElementById("result").classList.add("hidden");
+      document.getElementById("error-msg").classList.add("hidden");
+      document.getElementById("alt-info").classList.add("hidden");
+      // Reset distance/duration state
+      distKm = null; distMi = null;
+      // Reset map to default (clears route lines and markers)
+      const res = await fetch("/clear-map");
+      const data = await res.json();
+      document.getElementById("map-container").innerHTML = data.map_html;
+    });
 
     // ── Mobile bottom sheet: tap handle to open/close ──
     let sheetOpen = true;
@@ -192,8 +220,10 @@
       if (!o || !d) { showErr(t.errBoth); return; }
 
       const btn = document.getElementById("go-btn");
+      const loader = document.getElementById("map-loading");
       btn.disabled = true;
       btn.innerHTML = `<i class="fa fa-spinner fa-spin"></i> ${t.routing}`;
+      loader.classList.remove("hidden");
 
       try {
         const res = await fetch("/route", {
@@ -229,6 +259,7 @@
       } finally {
         btn.disabled = false;
         btn.innerHTML = `<i class="fa fa-route"></i> ${TRANSLATIONS[currentLang].getRoute}`;
+        loader.classList.add("hidden");
       }
     }
 

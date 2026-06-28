@@ -63,7 +63,18 @@ body{display:flex;flex-direction:column;height:100vh;font-family:"Segoe UI",sans
 .mode-btn:hover{border-color:#89b4fa;color:#cdd6f4}
 .mode-btn.active{background:#89b4fa;color:#1e1e2e;border-color:#89b4fa;font-weight:600}
 
-/* ── Get Route button ── */
+/* ── Clear button ── */
+#clear-btn{width:100%;padding:10px;border-radius:8px;border:1px solid #444466;background:transparent;color:#a6adc8;font-size:.88rem;cursor:pointer;transition:all .2s}
+#clear-btn:hover{border-color:#f38ba8;color:#f38ba8}
+body.light #clear-btn{border-color:#d0d0dd;color:#888}
+body.light #clear-btn:hover{border-color:#e05c78;color:#e05c78}
+
+/* ── Map loading overlay ── */
+#map-loading{position:fixed;inset:0;z-index:150;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.35);backdrop-filter:blur(2px)}
+#map-loading .loading-box{background:#1e1e2e;color:#cdd6f4;padding:16px 28px;border-radius:12px;font-size:.95rem;display:flex;align-items:center;gap:12px;box-shadow:0 4px 20px rgba(0,0,0,.4)}
+#map-loading .loading-box i{color:#89b4fa;font-size:1.1rem}
+body.light #map-loading .loading-box{background:#f7f7f7;color:#2e2e3e}
+body.light #map-loading .loading-box i{color:#3a6bc4}
 #go-btn{width:100%;padding:12px;border-radius:8px;border:none;background:#89b4fa;color:#1e1e2e;font-size:.92rem;font-weight:700;cursor:pointer;transition:background .2s,transform .1s}
 #go-btn:hover{background:#b4d0fb}
 #go-btn:active{transform:scale(.98)}
