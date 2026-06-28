@@ -1,0 +1,120 @@
+*{box-sizing:border-box;margin:0;padding:0}
+
+body{display:flex;flex-direction:column;height:100vh;font-family:"Segoe UI",sans-serif;background:#1e1e2e}
+
+/* ── Map: fixed fullscreen on mobile, flex panel on desktop ── */
+#map-container{position:fixed;inset:0;z-index:0}
+#map-container iframe,#map-container>div{width:100vw!important;height:100vh!important}
+
+/* ── Floating note top-right of map ── */
+#map-note{position:fixed;top:10px;right:10px;background:rgba(30,30,46,0.75);color:#a6adc8;font-size:.72rem;padding:5px 10px;border-radius:6px;pointer-events:none;z-index:100}
+
+/* ── Sidebar: bottom sheet on mobile ── */
+#sidebar{
+  position:fixed;bottom:0;left:0;right:0;
+  background:#1e1e2e;color:#cdd6f4;
+  border-radius:16px 16px 0 0;
+  box-shadow:0 -4px 20px rgba(0,0,0,.4);
+  z-index:200;
+  display:flex;flex-direction:column;gap:14px;
+  padding:0 18px 20px;
+  transition:transform .3s ease;
+  /* Only take up as much height as content needs */
+  max-height:fit-content;
+  overflow-y:auto;
+}
+
+/* Collapsed: only handle + title bar visible above bottom */
+#sidebar.collapsed{transform:translateY(calc(100% - 56px))}
+
+/* ── Drag handle (mobile only) ── */
+#sheet-handle{width:100%;display:flex;flex-direction:column;align-items:center;padding:10px 0 4px;cursor:pointer;flex-shrink:0}
+#sheet-handle .handle-bar{width:40px;height:4px;border-radius:2px;background:#444466;margin-bottom:8px}
+
+/* ── Top bar: title + language + theme ── */
+#top-bar{width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px}
+#top-bar h1{font-size:1.1rem;color:#89b4fa;white-space:nowrap}
+
+/* ── Language selector ── */
+#lang-select{background:#313244;color:#cdd6f4;border:1px solid #444466;border-radius:8px;padding:5px 8px;font-size:.78rem;cursor:pointer;outline:none}
+#lang-select:hover{border-color:#89b4fa}
+
+/* ── Theme toggle ── */
+#theme-toggle{background:#1a1a2e;border:1px solid #444466;color:#f5c542;border-radius:8px;padding:5px 9px;cursor:pointer;font-size:.82rem;transition:all .2s}
+#theme-toggle:hover{border-color:#f5c542}
+
+/* ── Address inputs ── */
+.input-group{position:relative;width:100%}
+.input-group label{display:block;font-size:.72rem;text-transform:uppercase;letter-spacing:.8px;color:#a6adc8;margin-bottom:5px}
+.input-group input{width:100%;padding:9px 12px;border-radius:8px;border:1px solid #313244;background:#313244;color:#cdd6f4;font-size:.88rem;outline:none;transition:border .2s}
+.input-group input:focus{border-color:#89b4fa}
+.input-group input::placeholder{color:#6c6c8a}
+
+/* ── Autocomplete dropdown ── */
+.suggestions{position:absolute;width:100%;list-style:none;background:#242436;border:1px solid #444466;border-radius:8px;margin-top:4px;max-height:180px;overflow-y:auto;z-index:300}
+.suggestions.hidden{display:none}
+.suggestions li{padding:9px 12px;font-size:.8rem;color:#cdd6f4;cursor:pointer;border-bottom:1px solid #313244;line-height:1.4}
+.suggestions li:last-child{border-bottom:none}
+.suggestions li:hover{background:#313244;color:#89b4fa}
+
+/* ── Travel mode buttons ── */
+.mode-toggle{display:flex;gap:6px;width:100%}
+.mode-btn{flex:1;padding:8px 4px;border:1px solid #313244;border-radius:8px;background:#313244;color:#a6adc8;font-size:.76rem;cursor:pointer;transition:all .2s;display:flex;flex-direction:column;align-items:center;gap:3px}
+.mode-btn:hover{border-color:#89b4fa;color:#cdd6f4}
+.mode-btn.active{background:#89b4fa;color:#1e1e2e;border-color:#89b4fa;font-weight:600}
+
+/* ── Get Route button ── */
+#go-btn{width:100%;padding:12px;border-radius:8px;border:none;background:#89b4fa;color:#1e1e2e;font-size:.92rem;font-weight:700;cursor:pointer;transition:background .2s,transform .1s}
+#go-btn:hover{background:#b4d0fb}
+#go-btn:active{transform:scale(.98)}
+#go-btn:disabled{opacity:.6;cursor:not-allowed}
+
+/* ── Route result stats ── */
+#result{display:flex;flex-direction:column;gap:8px;width:100%}
+.stat{display:flex;align-items:center;gap:8px;background:#313244;padding:8px 12px;border-radius:8px;font-size:.88rem}
+.stat i{color:#89b4fa;width:14px;text-align:center}
+.unit-btn{background:#45475a;border:none;color:#cdd6f4;font-size:.72rem;padding:2px 7px;border-radius:5px;cursor:pointer;transition:background .2s}
+.unit-btn:hover{background:#89b4fa;color:#1e1e2e}
+.alt-info{width:100%;font-size:.78rem;color:#a6adc8;padding:4px 0 0 2px}
+#error-msg{width:100%;background:#f38ba8;color:#1e1e2e;padding:9px 14px;border-radius:8px;font-size:.83rem;font-weight:500}
+
+.hidden{display:none!important}
+
+/* ── Light theme overrides ── */
+body.light{background:#f0f0f0}
+body.light #sidebar{background:#f7f7f7;color:#2e2e3e;box-shadow:0 -4px 20px rgba(0,0,0,.15)}
+body.light #sheet-handle .handle-bar{background:#c0c0cc}
+body.light #top-bar h1{color:#3a6bc4}
+body.light .input-group label{color:#555570}
+body.light .input-group input{background:#e8e8ee;border-color:#d0d0dd;color:#2e2e3e}
+body.light .input-group input:focus{border-color:#3a6bc4}
+body.light .input-group input::placeholder{color:#9999aa}
+body.light .suggestions{background:#f0f0f5;border-color:#d0d0dd}
+body.light .suggestions li{color:#2e2e3e;border-bottom-color:#e0e0e8}
+body.light .suggestions li:hover{background:#e4e4ef;color:#3a6bc4}
+body.light .mode-btn{background:#e8e8ee;border-color:#d0d0dd;color:#555570}
+body.light .mode-btn:hover{border-color:#3a6bc4;color:#2e2e3e}
+body.light .mode-btn.active{background:#3a6bc4;color:#fff;border-color:#3a6bc4}
+body.light #go-btn{background:#3a6bc4;color:#fff}
+body.light #go-btn:hover{background:#5585d4}
+body.light .stat{background:#e8e8ee;color:#2e2e3e}
+body.light .stat i{color:#3a6bc4}
+body.light .unit-btn{background:#d0d0dd;color:#2e2e3e}
+body.light .unit-btn:hover{background:#3a6bc4;color:#fff}
+body.light .alt-info{color:#666680}
+body.light #lang-select{background:#e8e8ee;border-color:#d0d0dd;color:#2e2e3e}
+body.light #lang-select:hover{border-color:#3a6bc4}
+body.light #theme-toggle{background:#d0e4f7;border-color:#3a6bc4;color:#3a6bc4}
+body.light #theme-toggle:hover{background:#3a6bc4;color:#fff}
+body.light #map-note{background:rgba(240,240,240,.85);color:#555570}
+body.light #error-msg{background:#e05c78;color:#fff}
+
+/* ── Desktop: sidebar becomes fixed left panel ── */
+@media(min-width:700px){
+  body{flex-direction:row}
+  #map-container{position:relative;inset:unset;flex:1;height:100vh;order:2}
+  #map-container iframe,#map-container>div{width:100%!important;height:100%!important}
+  #map-note{position:absolute}
+  #sidebar{position:relative;inset:unset;width:340px;min-width:300px;border-radius:0;max-height:100vh;box-shadow:2px 0 12px rgba(0,0,0,.3);padding:24px 20px;gap:16px;order:1;transform:none!important}
+  #sheet-handle{display:none}
+}

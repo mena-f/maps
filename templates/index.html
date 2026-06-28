@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Destination Map</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+  <!-- Translations must load before the script block below -->
+  <script src="{{ url_for('static', filename='translations.js') }}"></script>
+</head>
+<body>
+
+  <!-- Full-screen map built by Folium in app.py -->
+  <div id="map-container">{{ map_html | safe }}</div>
+
+  <!-- Floating note over the map (top-right) -->
+  <div id="map-note">🌐 Map labels are shown in English regardless of selected language</div>
+
+  <!-- Sidebar: bottom sheet on mobile, left panel on desktop -->
+  <div id="sidebar">
+
+    <!-- Tap this bar on mobile to collapse/expand the sidebar -->
+    <div id="sheet-handle">
+      <div class="handle-bar"></div>
+    </div>
+
+    <!-- Title, language picker, and theme toggle -->
+    <div id="top-bar">
+      <h1 id="txt-title"><i class="fa fa-map-location-dot"></i> Route Finder</h1>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="lang-select" title="Language">
+          <option value="en">🇺🇸 English</option>
+          <option value="es">🇪🇸 Español</option>
+          <option value="fr">🇫🇷 Français</option>
+          <option value="ar">🇸🇦 العربية</option>
+          <option value="eg">🇪🇬 مصري</option>
+          <option value="zh">🇨🇳 中文</option>
+          <option value="de">🇩🇪 Deutsch</option>
+          <option value="pt">🇧🇷 Português</option>
+          <option value="ja">🇯🇵 日本語</option>
+          <option value="ko">🇰🇷 한국어</option>
+          <option value="ru">🇷🇺 Русский</option>
+          <option value="uk">🇺🇦 Українська</option>
+        </select>
+        <button id="theme-toggle" title="Toggle theme"><i class="fa fa-sun"></i></button>
+      </div>
+    </div>
+
+    <!-- Origin address input with autocomplete -->
+    <div class="input-group">
+      <label id="txt-from"><i class="fa fa-circle-dot"></i> From</label>
+      <input id="origin" type="text" placeholder="e.g. 123 Main St, Detroit" autocomplete="off"/>
+      <ul id="origin-suggestions" class="suggestions hidden"></ul>
+    </div>
+
+    <!-- Destination address input with autocomplete -->
+    <div class="input-group">
+      <label id="txt-to"><i class="fa fa-flag"></i> To</label>
+      <input id="destination" type="text" placeholder="e.g. 456 Elm St, Ann Arbor" autocomplete="off"/>
+      <ul id="destination-suggestions" class="suggestions hidden"></ul>
+    </div>
+
+    <!-- Driving / Walking / Cycling mode selector -->
+    <div class="mode-toggle">
+      <button class="mode-btn active" data-mode="driving"><i class="fa fa-car"></i> <span id="txt-driving">Driving</span></button>
+      <button class="mode-btn" data-mode="walking"><i class="fa fa-person-walking"></i> <span id="txt-walking">Walking</span></button>
+      <button class="mode-btn" data-mode="cycling"><i class="fa fa-bicycle"></i> <span id="txt-cycling">Cycling</span></button>
+    </div>
+
+    <button id="go-btn"><i class="fa fa-route"></i> <span id="txt-get-route">Get Route</span></button>
+
+    <!-- Result stats — hidden until a route is returned -->
+    <div id="result" class="hidden">
+      <div class="stat"><i class="fa fa-road"></i> <span id="distance"></span> <button id="unit-toggle" class="unit-btn">km</button></div>
+      <div class="stat"><i class="fa fa-clock"></i> <span id="duration"></span></div>
+      <div id="alt-info" class="alt-info hidden"></div>
+    </div>
+
+    <div id="error-msg" class="hidden"></div>
+  </div>
+
+  <script>
+    // ── App state ──
+    let mode = "driving", useKm = false, distKm, distMi, currentLang = "en";
+    const chosen = {}; // Stores pre-resolved lat/lon when user picks an autocomplete suggestion
+
+    // ── Mobile bottom sheet: tap handle to open/close ──
+    let sheetOpen = true;
+    document.getElementById("sheet-handle").addEventListener("click", () => {
+      sheetOpen = !sheetOpen;
+      document.getElementById("sidebar").classList.toggle("collapsed", !sheetOpen);
+    });
+
+    // ── Language selector ──
+    const langSelect = document.getElementById("lang-select");
+    langSelect.addEventListener("change", () => applyLang(langSelect.value));
+
+    function applyLang(code) {
+      currentLang = code;
+      const t = TRANSLATIONS[code];
+      // Arabic/Egyptian: flip text direction inside sidebar only, not the whole page
+      const isRTL = (code === "ar" || code === "eg");
+      document.documentElement.lang = code;
+      document.getElementById("sidebar").style.direction = isRTL ? "rtl" : "ltr";
+      // Update all translatable UI text
+      document.getElementById("txt-title").innerHTML  = `<i class="fa fa-map-location-dot"></i> ${t.title}`;
+      document.getElementById("txt-from").innerHTML   = `<i class="fa fa-circle-dot"></i> ${t.from}`;
+      document.getElementById("txt-to").innerHTML     = `<i class="fa fa-flag"></i> ${t.to}`;
+      document.getElementById("origin").placeholder      = t.fromPH;
+      document.getElementById("destination").placeholder = t.toPH;
+      document.getElementById("txt-driving").textContent  = t.driving;
+      document.getElementById("txt-walking").textContent  = t.walking;
+      document.getElementById("txt-cycling").textContent  = t.cycling;
+      document.getElementById("txt-get-route").textContent = t.getRoute;
+      document.getElementById("unit-toggle").textContent  = useKm ? t.toggleKm : t.toggleMi;
+      if (distKm != null) showDist();
+    }
+
+    // ── Travel mode buttons ──
+    document.querySelectorAll(".mode-btn").forEach(b => b.addEventListener("click", () => {
+      document.querySelectorAll(".mode-btn").forEach(x => x.classList.remove("active"));
+      b.classList.add("active");
+      mode = b.dataset.mode;
+    }));
+
+    // ── km / mi toggle ──
+    document.getElementById("unit-toggle").addEventListener("click", () => {
+      useKm = !useKm;
+      document.getElementById("unit-toggle").textContent =
+        useKm ? TRANSLATIONS[currentLang].toggleKm : TRANSLATIONS[currentLang].toggleMi;
+      if (distKm != null) showDist();
+    });
+
+    function showDist() {
+      const t = TRANSLATIONS[currentLang];
+      document.getElementById("distance").textContent =
+        useKm ? `${distKm} ${t.toggleKm}` : `${distMi} ${t.toggleMi}`;
+    }
+
+    // ── Autocomplete: fetch suggestions as the user types ──
+    ["origin", "destination"].forEach(id => {
+      const inp  = document.getElementById(id);
+      const list = document.getElementById(`${id}-suggestions`);
+      let timer;
+
+      inp.addEventListener("input", () => {
+        chosen[id] = null; // Clear saved coords when user edits the field
+        clearTimeout(timer);
+        const q = inp.value.trim();
+        if (q.length < 3) { list.innerHTML = ""; list.classList.add("hidden"); return; }
+        // Debounce: wait 300ms after user stops typing before hitting the API
+        timer = setTimeout(async () => {
+          try {
+            const items = await fetch(`/suggest?q=${encodeURIComponent(q)}`).then(r => r.json());
+            list.innerHTML = "";
+            if (!items.length) { list.classList.add("hidden"); return; }
+            items.forEach(item => {
+              const li = document.createElement("li");
+              li.textContent = item.label;
+              li.onclick = () => {
+                inp.value = item.label;
+                chosen[id] = item; // Save lat/lon so /route skips geocoding
+                list.innerHTML = "";
+                list.classList.add("hidden");
+              };
+              list.appendChild(li);
+            });
+            list.classList.remove("hidden");
+          } catch { list.classList.add("hidden"); }
+        }, 300);
+      });
+
+      inp.addEventListener("keydown", e => { if (e.key === "Enter") getRoute(); });
+      // Close dropdown when clicking anywhere else
+      document.addEventListener("click", e => {
+        if (!inp.contains(e.target) && !list.contains(e.target)) list.classList.add("hidden");
+      });
+    });
+
+    // ── Route fetch: sends inputs to Flask, gets back map HTML + stats ──
+    document.getElementById("go-btn").addEventListener("click", getRoute);
+
+    async function getRoute() {
+      const t   = TRANSLATIONS[currentLang];
+      const o   = document.getElementById("origin").value.trim();
+      const d   = document.getElementById("destination").value.trim();
+      const err = document.getElementById("error-msg");
+      err.classList.add("hidden");
+      document.getElementById("result").classList.add("hidden");
+
+      if (!o || !d) { showErr(t.errBoth); return; }
+
+      const btn = document.getElementById("go-btn");
+      btn.disabled = true;
+      btn.innerHTML = `<i class="fa fa-spinner fa-spin"></i> ${t.routing}`;
+
+      try {
+        const res = await fetch("/route", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            origin: o, destination: d, mode,
+            origin_coords: chosen.origin,           // Pass pre-resolved coords if available
+            destination_coords: chosen.destination
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) { showErr(data.error || t.errGeneric); return; }
+
+        // Replace map iframe with the newly rendered route map
+        document.getElementById("map-container").innerHTML = data.map_html;
+        distKm = data.distance_km;
+        distMi = data.distance_mi;
+        showDist();
+
+        const h = Math.floor(data.duration_min / 60), m = data.duration_min % 60;
+        document.getElementById("duration").textContent = h ? `${h} hr ${m} min` : `${m} min`;
+
+        const alt = document.getElementById("alt-info");
+        if (data.alt_count > 0) {
+          alt.textContent = t.altRoute(data.alt_count);
+          alt.classList.remove("hidden");
+        } else alt.classList.add("hidden");
+
+        document.getElementById("result").classList.remove("hidden");
+      } catch {
+        showErr(TRANSLATIONS[currentLang].errNetwork);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<i class="fa fa-route"></i> ${TRANSLATIONS[currentLang].getRoute}`;
+      }
+    }
+
+    // ── Dark / Light theme toggle ──
+    let isDark = true;
+    const themeBtn = document.getElementById("theme-toggle");
+
+    function applyTheme() {
+      if (isDark) {
+        document.body.classList.remove("light");
+        themeBtn.innerHTML = '<i class="fa fa-sun"></i>';  // Sun icon = click to go light
+      } else {
+        document.body.classList.add("light");
+        themeBtn.innerHTML = '<i class="fa fa-moon"></i>'; // Moon icon = click to go dark
+      }
+    }
+
+    themeBtn.addEventListener("click", () => { isDark = !isDark; applyTheme(); });
+    applyTheme(); // Set initial theme on page load
+
+    function showErr(msg) {
+      const el = document.getElementById("error-msg");
+      el.textContent = msg;
+      el.classList.remove("hidden");
+    }
+  </script>
+</body>
+</html>
