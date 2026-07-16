@@ -78,22 +78,31 @@ def get_routes_driving(s, e):
     ]
 
 def get_routes_ors(s, e, mode):
-    """Fetch a walking or cycling route from OpenRouteService (uses real pedestrian/bike paths)."""
+    """Fetch a walking or cycling route, plus a couple of longer alternatives, from OpenRouteService."""
     r = requests.post(
         f"{ORS}/{ORS_PROFILE[mode]}/geojson",
         headers={"Authorization": ORS_KEY, "Content-Type": "application/json"},
-        json={"coordinates": [[s[1], s[0]], [e[1], e[0]]]},
+        json={
+            "coordinates": [[s[1], s[0]], [e[1], e[0]]],
+            # Ask for up to 2 extra alternatives, even if somewhat longer than the best route
+            "alternative_routes": {"target_count": 3, "weight_factor": 1.6, "share_factor": 0.6},
+        },
         timeout=15
     )
     data = r.json()
-    if "features" not in data:
+    if "features" not in data or not data["features"]:
         return None
-    ft = data["features"][0]
-    return [{
-        "coords": [(p[1], p[0]) for p in ft["geometry"]["coordinates"]],
-        "dist":   round(ft["properties"]["summary"]["distance"] / 1000, 2),
-        "mins":   round(ft["properties"]["summary"]["duration"] / 60),
-    }]
+    routes = [
+        {
+            "coords": [(p[1], p[0]) for p in ft["geometry"]["coordinates"]],
+            "dist":   round(ft["properties"]["summary"]["distance"] / 1000, 2),
+            "mins":   round(ft["properties"]["summary"]["duration"] / 60),
+        }
+        for ft in data["features"]
+    ]
+    # Fastest route first, alternatives after (matches how OSRM's driving routes are ordered)
+    routes.sort(key=lambda rt: rt["mins"])
+    return routes
 
 def get_routes(s, e, mode):
     """Route dispatcher — driving uses OSRM, walking/cycling use ORS."""
