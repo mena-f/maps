@@ -61,6 +61,10 @@
       <ul id="origin-suggestions" class="suggestions hidden"></ul>
     </div>
 
+    <!-- Optional stops between From and To. Starts with one faded placeholder row;
+         typing into it activates it and spawns a fresh placeholder row underneath. -->
+    <div id="stops-container"></div>
+
     <!-- Destination address input with autocomplete -->
     <div class="input-group">
       <label id="txt-to"><i class="fa fa-flag"></i> To</label>
@@ -101,6 +105,95 @@
     }
     loadDefaultMap();
 
+    // ── Optional stops between From and To ──
+    let stopCounter = 0;
+    const chosenStops = {}; // stopId -> pre-resolved {label, lat, lon} from autocomplete
+
+    function addStopRow(isPlaceholder) {
+      const id = `stop-${stopCounter++}`;
+      const container = document.getElementById("stops-container");
+
+      const row = document.createElement("div");
+      row.className = "input-group stop-row" + (isPlaceholder ? " stop-placeholder" : "");
+      row.dataset.stopId = id;
+      row.innerHTML = `
+        <input type="text" class="stop-input" placeholder="${TRANSLATIONS[currentLang].addStop}" autocomplete="off"/>
+        <button type="button" class="remove-stop hidden" title="Remove stop"><i class="fa fa-xmark"></i></button>
+        <ul class="suggestions hidden"></ul>
+      `;
+      container.appendChild(row);
+
+      const inp = row.querySelector(".stop-input");
+      const list = row.querySelector(".suggestions");
+      const removeBtn = row.querySelector(".remove-stop");
+      let activated = !isPlaceholder;
+      let timer;
+
+      removeBtn.addEventListener("click", () => {
+        delete chosenStops[id];
+        row.remove();
+      });
+
+      inp.addEventListener("input", () => {
+        chosenStops[id] = null; // Clear saved coords when user edits the field
+
+        // First keystroke in a placeholder row activates it and spawns the next one
+        if (!activated && inp.value.trim().length > 0) {
+          activated = true;
+          row.classList.remove("stop-placeholder");
+          removeBtn.classList.remove("hidden");
+          addStopRow(true);
+        }
+
+        clearTimeout(timer);
+        const q = inp.value.trim();
+        if (q.length < 3) { list.innerHTML = ""; list.classList.add("hidden"); return; }
+        timer = setTimeout(async () => {
+          try {
+            const items = await fetch(`/suggest?q=${encodeURIComponent(q)}`).then(r => r.json());
+            list.innerHTML = "";
+            if (!items.length) { list.classList.add("hidden"); return; }
+            items.forEach(item => {
+              const li = document.createElement("li");
+              li.textContent = item.label;
+              li.onclick = () => {
+                inp.value = item.label;
+                chosenStops[id] = item;
+                list.innerHTML = "";
+                list.classList.add("hidden");
+              };
+              list.appendChild(li);
+            });
+            list.classList.remove("hidden");
+          } catch { list.classList.add("hidden"); }
+        }, 300);
+      });
+
+      inp.addEventListener("keydown", e => { if (e.key === "Enter") getRoute(); });
+      document.addEventListener("click", e => {
+        if (!inp.contains(e.target) && !list.contains(e.target)) list.classList.add("hidden");
+      });
+    }
+
+    function resetStops() {
+      document.getElementById("stops-container").innerHTML = "";
+      Object.keys(chosenStops).forEach(k => delete chosenStops[k]);
+      addStopRow(true);
+    }
+    resetStops(); // Start with one faded "+ Add a stop" row
+
+    function collectStops() {
+      const rows = document.querySelectorAll("#stops-container .stop-row");
+      const out = [];
+      rows.forEach(row => {
+        const text = row.querySelector(".stop-input").value.trim();
+        if (!text) return; // skip the still-empty trailing placeholder
+        const c = chosenStops[row.dataset.stopId];
+        out.push({ text, coords: c ? { lat: c.lat, lon: c.lon } : null });
+      });
+      return out;
+    }
+
     // ── Clear / Reset button ──
     document.getElementById("clear-btn").addEventListener("click", () => {
       // Clear inputs
@@ -109,6 +202,8 @@
       // Clear saved autocomplete coords
       chosen.origin = null;
       chosen.destination = null;
+      // Clear any added stops back to a single empty placeholder row
+      resetStops();
       // Hide results and errors
       document.getElementById("result").classList.add("hidden");
       document.getElementById("error-msg").classList.add("hidden");
@@ -143,6 +238,7 @@
       document.getElementById("txt-to").innerHTML     = `<i class="fa fa-flag"></i> ${t.to}`;
       document.getElementById("origin").placeholder      = t.fromPH;
       document.getElementById("destination").placeholder = t.toPH;
+      document.querySelectorAll(".stop-input").forEach(el => el.placeholder = t.addStop);
       document.getElementById("txt-driving").textContent  = t.driving;
       document.getElementById("txt-walking").textContent  = t.walking;
       document.getElementById("txt-cycling").textContent  = t.cycling;
@@ -238,7 +334,8 @@
           body: JSON.stringify({
             origin: o, destination: d, mode,
             origin_coords: chosen.origin,           // Pass pre-resolved coords if available
-            destination_coords: chosen.destination
+            destination_coords: chosen.destination,
+            stops: collectStops()                   // Any stops added between From and To, in order
           })
         });
         const data = await res.json();

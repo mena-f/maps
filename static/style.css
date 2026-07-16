@@ -50,6 +50,17 @@ body{display:flex;flex-direction:column;height:100vh;font-family:"Segoe UI",sans
 .input-group input:focus{border-color:#89b4fa}
 .input-group input::placeholder{color:#6c6c8a}
 
+/* ── Optional stops between From and To ── */
+#stops-container{display:flex;flex-direction:column;gap:14px;width:100%}
+.stop-row{position:relative}
+.stop-row input{padding-right:34px}
+.stop-row.stop-placeholder input{opacity:.55;border-style:dashed}
+.stop-row .remove-stop{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:#a6adc8;cursor:pointer;font-size:.82rem;padding:4px;line-height:1}
+.stop-row .remove-stop:hover{color:#f38ba8}
+.stop-row .remove-stop.hidden{display:none}
+body.light .stop-row .remove-stop{color:#888}
+body.light .stop-row .remove-stop:hover{color:#e05c78}
+
 /* ── Autocomplete dropdown ── */
 .suggestions{position:absolute;width:100%;list-style:none;background:#242436;border:1px solid #444466;border-radius:8px;margin-top:4px;max-height:180px;overflow-y:auto;z-index:300}
 .suggestions.hidden{display:none}

@@ -58,11 +58,17 @@ def geocode(q):
     d = r.json()
     return (float(d[0]["lat"]), float(d[0]["lon"])) if d else None
 
-def get_routes_driving(s, e):
-    """Fetch up to 3 driving route alternatives from OSRM."""
+def get_routes_driving(points):
+    """Fetch driving route(s) from OSRM through every point in order (start, any stops, end).
+    OSRM only returns real alternatives for a direct start→end trip — once stops are added,
+    there's just one route through all the waypoints."""
+    coords = ";".join(f"{lon},{lat}" for lat, lon in points)
     r = requests.get(
-        f"{OSRM}/driving/{s[1]},{s[0]};{e[1]},{e[0]}",
-        params={"overview": "full", "geometries": "geojson", "alternatives": "true", "steps": "false"},
+        f"{OSRM}/driving/{coords}",
+        params={
+            "overview": "full", "geometries": "geojson", "steps": "false",
+            "alternatives": "true" if len(points) == 2 else "false",
+        },
         timeout=10
     )
     data = r.json()
@@ -77,16 +83,18 @@ def get_routes_driving(s, e):
         for rt in data["routes"]
     ]
 
-def get_routes_ors(s, e, mode):
-    """Fetch a walking or cycling route, plus a couple of longer alternatives, from OpenRouteService."""
+def get_routes_ors(points, mode):
+    """Fetch a walking/cycling route from OpenRouteService through every point in order.
+    Alternatives are only requested for a direct start→end trip — ORS doesn't support
+    alternative_routes once there are more than two waypoints."""
+    body = {"coordinates": [[lon, lat] for lat, lon in points]}
+    if len(points) == 2:
+        # Ask for up to 2 extra alternatives, even if somewhat longer than the best route
+        body["alternative_routes"] = {"target_count": 3, "weight_factor": 1.6, "share_factor": 0.6}
     r = requests.post(
         f"{ORS}/{ORS_PROFILE[mode]}/geojson",
         headers={"Authorization": ORS_KEY, "Content-Type": "application/json"},
-        json={
-            "coordinates": [[s[1], s[0]], [e[1], e[0]]],
-            # Ask for up to 2 extra alternatives, even if somewhat longer than the best route
-            "alternative_routes": {"target_count": 3, "weight_factor": 1.6, "share_factor": 0.6},
-        },
+        json=body,
         timeout=15
     )
     data = r.json()
@@ -104,12 +112,15 @@ def get_routes_ors(s, e, mode):
     routes.sort(key=lambda rt: rt["mins"])
     return routes
 
-def get_routes(s, e, mode):
-    """Route dispatcher — driving uses OSRM, walking/cycling use ORS."""
-    return get_routes_driving(s, e) if mode == "driving" else get_routes_ors(s, e, mode)
+def get_routes(points, mode):
+    """Route dispatcher — driving uses OSRM, walking/cycling use ORS. `points` is the
+    full ordered list of (lat, lon): start, any stops in between, then the destination."""
+    return get_routes_driving(points) if mode == "driving" else get_routes_ors(points, mode)
 
-def build_map(start=None, end=None, routes=None, mode="driving"):
-    """Build and return a Folium map as an HTML string."""
+def build_map(points=None, routes=None, mode="driving"):
+    """Build and return a Folium map as an HTML string. `points` is the full ordered
+    list of (lat, lon) — start, any stops in between, then the destination."""
+    start = points[0] if points else None
     m = folium.Map(location=start or [20, 0], zoom_start=13 if start else 2)
 
     # ESRI World Street Map — shows labels, roads, and terrain at all zoom levels
@@ -144,13 +155,17 @@ def build_map(start=None, end=None, routes=None, mode="driving"):
         m.fit_bounds([[min(p[0] for p in all_pts), min(p[1] for p in all_pts)],
                       [max(p[0] for p in all_pts), max(p[1] for p in all_pts)]])
 
-    # Add start and end markers
-    if start:
-        folium.Marker(start, tooltip="Start",
+    # Add start, stop, and destination markers
+    if points:
+        folium.Marker(points[0], tooltip="Start",
             icon=folium.Icon(color="blue", icon="play", prefix="fa")).add_to(m)
-    if end:
-        folium.Marker(end, tooltip="Destination",
-            icon=folium.Icon(color="red", icon="flag", prefix="fa")).add_to(m)
+        # Any waypoints between start and destination get their own numbered marker
+        for i, pt in enumerate(points[1:-1], start=1):
+            folium.Marker(pt, tooltip=f"Stop {i}",
+                icon=folium.Icon(color="orange", icon="map-pin", prefix="fa")).add_to(m)
+        if len(points) > 1:
+            folium.Marker(points[-1], tooltip="Destination",
+                icon=folium.Icon(color="red", icon="flag", prefix="fa")).add_to(m)
 
     return m._repr_html_()
 
@@ -194,30 +209,44 @@ def suggest():
     except Exception:
         return jsonify([])
 
+def resolve_point(text, coords):
+    """Resolve a point from pre-fetched autocomplete coords if available, else geocode the raw text."""
+    if coords:
+        return (float(coords["lat"]), float(coords["lon"]))
+    text = (text or "").strip()
+    return geocode(text) if text else None
+
 @app.route("/route", methods=["POST"])
 def route():
-    """Receive origin/destination/mode, return map HTML + route stats."""
+    """Receive origin/destination/mode/stops, return map HTML + route stats."""
     d    = request.get_json()
     mode = d.get("mode", "driving")
     if mode not in PROFILES:
         return jsonify({"error": "Invalid travel mode."}), 400
 
-    def resolve(coord_key, text_key):
-        """Use pre-resolved coords from autocomplete if available, else geocode."""
-        c = d.get(coord_key)
-        return (float(c["lat"]), float(c["lon"])) if c else geocode(d.get(text_key, "").strip())
-
-    start = resolve("origin_coords", "origin")
+    start = resolve_point(d.get("origin"), d.get("origin_coords"))
     if not start: return jsonify({"error": f"Could not find: '{d.get('origin')}'"}), 404
-    end   = resolve("destination_coords", "destination")
+    end   = resolve_point(d.get("destination"), d.get("destination_coords"))
     if not end:   return jsonify({"error": f"Could not find: '{d.get('destination')}'"}), 404
 
-    routes = get_routes(start, end, mode)
+    # Resolve any in-between stops, in the order the user entered them
+    stop_points = []
+    for i, stop in enumerate(d.get("stops") or [], start=1):
+        text, coords = stop.get("text"), stop.get("coords")
+        if not (text or "").strip() and not coords:
+            continue  # skip a blank/unused stop row
+        pt = resolve_point(text, coords)
+        if not pt:
+            return jsonify({"error": f"Could not find stop {i}: '{text}'"}), 404
+        stop_points.append(pt)
+
+    points = [start] + stop_points + [end]
+    routes = get_routes(points, mode)
     if not routes: return jsonify({"error": "Could not calculate route."}), 500
 
     best = routes[0]
     return jsonify({
-        "map_html":     build_map(start, end, routes, mode),
+        "map_html":     build_map(points, routes, mode),
         "distance_mi":  round(best["dist"] * 0.621371, 2),  # Convert km to miles
         "distance_km":  best["dist"],
         "duration_min": best["mins"],
