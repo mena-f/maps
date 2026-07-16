@@ -1,11 +1,13 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from dotenv import load_dotenv
 import folium, requests, re, os
 
 # Load environment variables from .env file (keeps API keys out of code)
 load_dotenv()
 
-app = Flask(__name__)
+# app.root_path defaults to the folder this file lives in, so index.html
+# and static/ are found no matter what directory you launch python from.
+app = Flask(__name__, static_folder="static", static_url_path="/static")
 
 # ── API endpoints ──
 NOM     = "https://nominatim.openstreetmap.org/search"   # Address search
@@ -143,6 +145,16 @@ def build_map(start=None, end=None, routes=None, mode="driving"):
 
     return m._repr_html_()
 
+@app.route("/")
+def index():
+    """Serve the standalone index.html directly (no templates/ folder, no Jinja)."""
+    return send_from_directory(app.root_path, "index.html")
+
+@app.route("/map")
+def map_default():
+    """Return the default world-view map HTML (used on initial page load and Clear)."""
+    return build_map()
+
 @app.route("/suggest")
 def suggest():
     """Return up to 5 clean address suggestions for autocomplete dropdown."""
@@ -172,11 +184,6 @@ def suggest():
         return jsonify(out)
     except Exception:
         return jsonify([])
-
-@app.route("/")
-def index():
-    """Serve the main page with a default world-view map."""
-    return render_template("index.html", map_html=build_map())
 
 @app.route("/route", methods=["POST"])
 def route():

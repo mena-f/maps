@@ -4,15 +4,15 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Destination Map</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"/>
+  <link rel="stylesheet" href="/static/style.css"/>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
   <!-- Translations must load before the script block below -->
-  <script src="{{ url_for('static', filename='translations.js') }}"></script>
+  <script src="/static/translations.js"></script>
 </head>
 <body>
 
-  <!-- Full-screen map built by Folium in app.py -->
-  <div id="map-container">{{ map_html | safe }}</div>
+  <!-- Full-screen map built by Folium in app.py; filled in by JS on load -->
+  <div id="map-container"></div>
   <!-- Loading overlay shown while route is being calculated -->
   <div id="map-loading" class="hidden">
     <div class="loading-box">
@@ -93,8 +93,16 @@
     let mode = "driving", useKm = false, distKm, distMi, currentLang = "en";
     const chosen = {}; // Stores pre-resolved lat/lon when user picks an autocomplete suggestion
 
+    // ── Load the default world map on first page load ──
+    function loadDefaultMap() {
+      fetch("/map").then(r => r.text()).then(html => {
+        document.getElementById("map-container").innerHTML = html;
+      });
+    }
+    loadDefaultMap();
+
     // ── Clear / Reset button ──
-    document.getElementById("clear-btn").addEventListener("click", async () => {
+    document.getElementById("clear-btn").addEventListener("click", () => {
       // Clear inputs
       document.getElementById("origin").value = "";
       document.getElementById("destination").value = "";
@@ -107,10 +115,8 @@
       document.getElementById("alt-info").classList.add("hidden");
       // Reset distance/duration state
       distKm = null; distMi = null;
-      // Reset map to default (clears route lines and markers)
-      const res = await fetch("/clear-map");
-      const data = await res.json();
-      document.getElementById("map-container").innerHTML = data.map_html;
+      // Reload default world map
+      loadDefaultMap();
     });
 
     // ── Mobile bottom sheet: tap handle to open/close ──
