@@ -58,6 +58,31 @@ def geocode(q):
     d = r.json()
     return (float(d[0]["lat"]), float(d[0]["lon"])) if d else None
 
+def main_road(legs):
+    """Given a route's legs (each with turn-by-turn steps that have a name/distance),
+    return whichever named road covers the most distance — used as a short 'via X' label.
+    Returns None if no leg/step data is available or every step is unnamed."""
+    totals = {}
+    for leg in legs or []:
+        for step in leg.get("steps") or []:
+            name = (step.get("name") or "").strip()
+            if not name:
+                continue
+            totals[name] = totals.get(name, 0) + (step.get("distance") or 0)
+    return max(totals, key=totals.get) if totals else None
+
+def rank_times(routes):
+    """Label each route 'fast' (fastest), 'slow' (slowest), or 'mid' (anything else), for
+    color-coding. Returns all None when there's no real time spread (e.g. only one route)."""
+    mins_list = [rt["mins"] for rt in routes]
+    fastest, slowest = min(mins_list), max(mins_list)
+    if fastest == slowest:
+        return [None] * len(routes)
+    return [
+        "fast" if m == fastest else "slow" if m == slowest else "mid"
+        for m in mins_list
+    ]
+
 def get_routes_driving(points):
     """Fetch driving route(s) from OSRM through every point in order (start, any stops, end).
     OSRM only returns real alternatives for a direct start→end trip — once stops are added,
@@ -66,7 +91,8 @@ def get_routes_driving(points):
     r = requests.get(
         f"{OSRM}/driving/{coords}",
         params={
-            "overview": "full", "geometries": "geojson", "steps": "false",
+            # steps=true so each route includes road names, used to show "via <road>"
+            "overview": "full", "geometries": "geojson", "steps": "true",
             "alternatives": "true" if len(points) == 2 else "false",
         },
         timeout=10
@@ -79,6 +105,7 @@ def get_routes_driving(points):
             "coords": [(p[1], p[0]) for p in rt["geometry"]["coordinates"]],
             "dist":   round(rt["distance"] / 1000, 2),
             "mins":   round(rt["duration"] / 60),
+            "road":   main_road(rt.get("legs")),
         }
         for rt in data["routes"]
     ]
@@ -105,6 +132,7 @@ def get_routes_ors(points, mode):
             "coords": [(p[1], p[0]) for p in ft["geometry"]["coordinates"]],
             "dist":   round(ft["properties"]["summary"]["distance"] / 1000, 2),
             "mins":   round(ft["properties"]["summary"]["duration"] / 60),
+            "road":   main_road(ft.get("properties", {}).get("segments")),
         }
         for ft in data["features"]
     ]
@@ -130,15 +158,31 @@ def build_map(points=None, routes=None, mode="driving"):
         name="ESRI Street",
     ).add_to(m)
 
-    # Slightly desaturate tiles so route lines stand out clearly
-    m.get_root().html.add_child(folium.Element(
-        "<style>.leaflet-tile { filter: saturate(0.75) brightness(1.02); }</style>"
-    ))
+    # Slightly desaturate tiles so route lines stand out clearly, and style the
+    # persistent time/distance badges drawn on each route (Google-Maps-style pills).
+    m.get_root().html.add_child(folium.Element("""
+        <style>
+        .leaflet-tile { filter: saturate(0.75) brightness(1.02); }
+        .route-badge {
+            background:#fff; color:#202124; border-radius:8px; padding:6px 10px;
+            font-family:"Segoe UI",sans-serif; font-size:.78rem; line-height:1.25;
+            text-align:center; white-space:nowrap; cursor:pointer;
+            box-shadow:0 1px 4px rgba(0,0,0,.35); transform:translate(-50%,-100%);
+        }
+        .route-badge-time { font-weight:700; }
+        .route-badge-dist { font-size:.7rem; color:#5f6368; }
+        .route-badge.rank-fast .route-badge-time { color:#188038; }
+        .route-badge.rank-slow .route-badge-time { color:#d93025; }
+        .route-badge.rank-mid  .route-badge-time { color:#5f6368; }
+        </style>
+    """))
 
     if routes:
         color, alt_color = PROFILES[mode]
+        ranks = rank_times(routes)
         all_pts = []
         layer_names = [None] * len(routes)  # JS variable name of each route's line, by route index
+        badge_names = [None] * len(routes)  # ...and of each route's time/distance badge marker
 
         # Draw alternatives first so the selected route ends up on top, but track each
         # line's original index so it lines up with the `routes` stats sent to the browser.
@@ -150,11 +194,28 @@ def build_map(points=None, routes=None, mode="driving"):
                 color=color if is_best else alt_color,
                 weight=6 if is_best else 4,
                 opacity=0.9 if is_best else 0.6,
-                tooltip=f"{'Best' if is_best else 'Alt'}: {round(rt['dist'] * 0.621371, 2)} mi, {rt['mins']} min",
             )
             line.add_to(m)
             layer_names[i] = line.get_name()
             all_pts += rt["coords"]
+
+            # A persistent time/distance pill at the route's midpoint (time first, then
+            # distance, per the site-wide ordering), color-coded fastest/slowest/middle.
+            mid = rt["coords"][len(rt["coords"]) // 2]
+            rank_class = f"rank-{ranks[i]}" if ranks[i] else "rank-mid"
+            dist_mi = round(rt["dist"] * 0.621371, 2)
+            badge_html = (
+                f'<div class="route-badge {rank_class}">'
+                f'<div class="route-badge-time">{rt["mins"]} min</div>'
+                f'<div class="route-badge-dist">{dist_mi} mi</div>'
+                f'</div>'
+            )
+            badge = folium.Marker(
+                location=mid,
+                icon=folium.DivIcon(html=badge_html, icon_size=(0, 0), icon_anchor=(0, 0)),
+            )
+            badge.add_to(m)
+            badge_names[i] = badge.get_name()
 
         # Auto-fit map bounds to show every route
         m.fit_bounds([[min(p[0] for p in all_pts), min(p[1] for p in all_pts)],
@@ -162,11 +223,12 @@ def build_map(points=None, routes=None, mode="driving"):
 
         # Thicken every route line automatically when zoomed out (so it stays easy to spot
         # and hover/click), and — when there's more than one route — let clicking any line
-        # select it. Wrapped in setTimeout so it runs after Folium's own map/layer setup
-        # code, regardless of exactly where in the page that code ends up.
+        # or badge select it. Wrapped in setTimeout so it runs after Folium's own map/layer
+        # setup code, regardless of exactly where in the page that code ends up.
         m.get_root().script.add_child(folium.Element(f"""
             setTimeout(function() {{
                 var layers = [{",".join(layer_names)}];
+                var badges = [{",".join(badge_names)}];
                 var mainColor = {color!r}, altColor = {alt_color!r};
                 var selectable = layers.length > 1;
                 var selected = 0;
@@ -198,14 +260,14 @@ def build_map(points=None, routes=None, mode="driving"):
                 }};
 
                 if (selectable) {{
-                    layers.forEach(function(layer, i) {{
-                        layer.on('click', function() {{
-                            window.__selectRoute(i);
-                            if (window.parent) {{
-                                window.parent.postMessage({{type: "routeSelected", index: i}}, "*");
-                            }}
-                        }});
-                    }});
+                    function onPick(i) {{
+                        window.__selectRoute(i);
+                        if (window.parent) {{
+                            window.parent.postMessage({{type: "routeSelected", index: i}}, "*");
+                        }}
+                    }}
+                    layers.forEach(function(layer, i) {{ layer.on('click', function() {{ onPick(i); }}); }});
+                    badges.forEach(function(badge, i) {{ badge.on('click', function() {{ onPick(i); }}); }});
                 }}
 
                 {m.get_name()}.on('zoomend', restyle);
@@ -316,8 +378,10 @@ def route():
                 "distance_mi":  round(rt["dist"] * 0.621371, 2),
                 "distance_km":  rt["dist"],
                 "duration_min": rt["mins"],
+                "road":         rt.get("road"),   # main road for a short "via <road>" label
+                "rank":         rank,             # "fast" / "slow" / "mid" / null, for coloring
             }
-            for rt in routes
+            for rt, rank in zip(routes, rank_times(routes))
         ],
     })
 

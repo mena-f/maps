@@ -85,8 +85,8 @@
     <!-- Result stats — hidden until a route is returned -->
     <div id="result" class="hidden">
       <div id="txt-legal-distance" class="result-label">Legal Distance</div>
-      <div class="stat"><i class="fa fa-road"></i> <span id="distance"></span> <button id="unit-toggle" class="unit-btn">km</button></div>
       <div class="stat"><i class="fa fa-clock"></i> <span id="duration"></span></div>
+      <div class="stat"><i class="fa fa-road"></i> <span id="distance"></span> <button id="unit-toggle" class="unit-btn">km</button></div>
       <div id="alt-info" class="alt-info hidden"></div>
 
       <!-- Alternative routes: shown when the calculated trip has more than one option.
@@ -301,8 +301,11 @@
       currentRoutes.forEach((rt, i) => {
         const item = document.createElement("div");
         item.className = "route-option" + (i === selectedRouteIndex ? " active" : "");
-        item.innerHTML = `<span>${i === 0 ? "Best" : "Alt " + i}</span>` +
-          `<span>${rt.distance_mi} mi &middot; ${formatDuration(rt.duration_min)}</span>`;
+        const rankClass = rt.rank ? ` time-${rt.rank}` : "";
+        item.innerHTML =
+          `<div class="route-option-time${rankClass}">${formatDuration(rt.duration_min)}</div>` +
+          `<div class="route-option-dist">${rt.distance_mi} mi</div>` +
+          (rt.road ? `<div class="route-option-road">via ${rt.road}</div>` : "");
         item.addEventListener("click", () => selectRoute(i));
         list.appendChild(item);
       });
