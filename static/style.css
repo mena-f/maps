@@ -61,6 +61,18 @@ body{display:flex;flex-direction:column;height:100vh;font-family:"Segoe UI",sans
 body.light .stop-row .remove-stop{color:#888}
 body.light .stop-row .remove-stop:hover{color:#e05c78}
 
+/* ── Optional live GPS trip timer ── */
+.timer-toggle{display:flex;align-items:center;gap:8px;font-size:.82rem;color:#a6adc8;cursor:pointer;width:100%}
+.timer-toggle input[type="checkbox"]{width:15px;height:15px;accent-color:#89b4fa;cursor:pointer}
+#timer-box{display:flex;align-items:center;justify-content:center;gap:10px;background:#313244;padding:10px 12px;border-radius:8px;font-size:1.3rem;font-weight:700;color:#89b4fa;letter-spacing:.5px;width:100%}
+#timer-box i{font-size:1rem}
+#timer-display.overdue{color:#f38ba8}
+#timer-error{width:100%;background:#f38ba8;color:#1e1e2e;padding:7px 12px;border-radius:8px;font-size:.78rem}
+body.light .timer-toggle{color:#555570}
+body.light #timer-box{background:#e8e8ee;color:#3a6bc4}
+body.light #timer-display.overdue{color:#e05c78}
+body.light #timer-error{background:#e05c78;color:#fff}
+
 /* ── Autocomplete dropdown ── */
 .suggestions{position:absolute;width:100%;list-style:none;background:#242436;border:1px solid #444466;border-radius:8px;margin-top:4px;max-height:180px;overflow-y:auto;z-index:300}
 .suggestions.hidden{display:none}

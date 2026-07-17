@@ -251,6 +251,9 @@ def route():
         "distance_km":  best["dist"],
         "duration_min": best["mins"],
         "alt_count":    len(routes) - 1,
+        # Sent back so the browser can run the optional live GPS trip timer
+        # without re-geocoding the destination itself.
+        "destination":  {"lat": end[0], "lon": end[1]},
     })
 
 if __name__ == "__main__":

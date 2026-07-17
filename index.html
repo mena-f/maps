@@ -87,6 +87,16 @@
       <div class="stat"><i class="fa fa-road"></i> <span id="distance"></span> <button id="unit-toggle" class="unit-btn">km</button></div>
       <div class="stat"><i class="fa fa-clock"></i> <span id="duration"></span></div>
       <div id="alt-info" class="alt-info hidden"></div>
+
+      <!-- Optional live GPS trip timer: off by default, opt-in per trip -->
+      <label id="timer-toggle-label" class="timer-toggle">
+        <input type="checkbox" id="timer-toggle"/>
+        <span id="txt-live-timer">Live trip timer</span>
+      </label>
+      <div id="timer-box" class="hidden">
+        <i class="fa fa-stopwatch"></i> <span id="timer-display">--:--</span>
+      </div>
+      <div id="timer-error" class="hidden"></div>
     </div>
 
     <div id="error-msg" class="hidden"></div>
@@ -96,6 +106,105 @@
     // ── App state ──
     let mode = "driving", useKm = false, distKm, distMi, currentLang = "en";
     const chosen = {}; // Stores pre-resolved lat/lon when user picks an autocomplete suggestion
+
+    // ── Optional live GPS trip timer (countdown to arrival) ──
+    let timerInterval = null, watchId = null, remainingSeconds = 0, timerArrived = false;
+    let destCoords = null, lastDurationSeconds = null;
+    const timerToggle  = document.getElementById("timer-toggle");
+    const timerBox     = document.getElementById("timer-box");
+    const timerDisplay = document.getElementById("timer-display");
+    const timerErrorEl = document.getElementById("timer-error");
+
+    function haversineKm(lat1, lon1, lat2, lon2) {
+      const R = 6371, toRad = d => d * Math.PI / 180;
+      const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat / 2) ** 2 +
+                Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    function formatTimer(totalSeconds) {
+      const sign = totalSeconds < 0 ? "+" : "";
+      const abs = Math.abs(totalSeconds);
+      const h = Math.floor(abs / 3600), m = Math.floor((abs % 3600) / 60), s = abs % 60;
+      const mm = String(m).padStart(2, "0"), ss = String(s).padStart(2, "0");
+      return sign + (h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`);
+    }
+
+    function showTimerError(msg) {
+      timerErrorEl.textContent = msg;
+      timerErrorEl.classList.remove("hidden");
+    }
+
+    function clearTimerHandles() {
+      if (timerInterval) clearInterval(timerInterval);
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      timerInterval = null; watchId = null;
+    }
+
+    // Fully stops tracking. Pass true to also switch the toggle back off (e.g. on error or Clear).
+    function stopTripTimer(resetToggle) {
+      clearTimerHandles();
+      timerBox.classList.add("hidden");
+      timerErrorEl.classList.add("hidden");
+      if (resetToggle) timerToggle.checked = false;
+    }
+
+    function updateTimerDisplay() {
+      timerDisplay.textContent = formatTimer(remainingSeconds);
+      timerDisplay.classList.toggle("overdue", remainingSeconds < 0);
+    }
+
+    // Starts (or restarts, for a freshly calculated route) the countdown + GPS watch.
+    function startTripTimer() {
+      clearTimerHandles();
+      const t = TRANSLATIONS[currentLang];
+
+      if (!window.isSecureContext) {
+        showTimerError(t.needsHttps);
+        timerToggle.checked = false;
+        return;
+      }
+      if (!("geolocation" in navigator) || !destCoords || lastDurationSeconds == null) {
+        showTimerError(t.geoDenied);
+        timerToggle.checked = false;
+        return;
+      }
+
+      remainingSeconds = lastDurationSeconds;
+      timerArrived = false;
+      timerErrorEl.classList.add("hidden");
+      timerBox.classList.remove("hidden");
+      updateTimerDisplay();
+
+      timerInterval = setInterval(() => {
+        if (timerArrived) return;
+        remainingSeconds--;
+        updateTimerDisplay();
+      }, 1000);
+
+      watchId = navigator.geolocation.watchPosition(
+        pos => {
+          if (timerArrived || !destCoords) return;
+          const distToDest = haversineKm(
+            pos.coords.latitude, pos.coords.longitude, destCoords.lat, destCoords.lon
+          );
+          if (distToDest < 0.075) { // Arrived: within ~75m of the destination
+            timerArrived = true;
+            clearTimerHandles();
+            timerDisplay.textContent = t.arrived;
+            timerDisplay.classList.remove("overdue");
+          }
+        },
+        () => { showTimerError(t.geoDenied); stopTripTimer(true); },
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+      );
+    }
+
+    timerToggle.addEventListener("change", () => {
+      if (timerToggle.checked) startTripTimer();
+      else stopTripTimer(false);
+    });
 
     // ── Load the default world map on first page load ──
     function loadDefaultMap() {
@@ -204,6 +313,9 @@
       chosen.destination = null;
       // Clear any added stops back to a single empty placeholder row
       resetStops();
+      // Stop and hide the live trip timer, if it was running
+      stopTripTimer(true);
+      destCoords = null; lastDurationSeconds = null;
       // Hide results and errors
       document.getElementById("result").classList.add("hidden");
       document.getElementById("error-msg").classList.add("hidden");
@@ -239,6 +351,7 @@
       document.getElementById("origin").placeholder      = t.fromPH;
       document.getElementById("destination").placeholder = t.toPH;
       document.querySelectorAll(".stop-input").forEach(el => el.placeholder = t.addStop);
+      document.getElementById("txt-live-timer").textContent = t.liveTimer;
       document.getElementById("txt-driving").textContent  = t.driving;
       document.getElementById("txt-walking").textContent  = t.walking;
       document.getElementById("txt-cycling").textContent  = t.cycling;
@@ -349,6 +462,11 @@
 
         const h = Math.floor(data.duration_min / 60), m = data.duration_min % 60;
         document.getElementById("duration").textContent = h ? `${h} hr ${m} min` : `${m} min`;
+
+        // Keep the live trip timer in sync with whatever route was just calculated
+        destCoords = data.destination;
+        lastDurationSeconds = Math.round(data.duration_min * 60);
+        if (timerToggle.checked) startTripTimer(); // Restart fresh for the new route
 
         const alt = document.getElementById("alt-info");
         if (data.alt_count > 0) {
