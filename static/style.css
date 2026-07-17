@@ -99,6 +99,16 @@ body.light #map-loading .loading-box i{color:#3a6bc4}
 .unit-btn{background:#45475a;border:none;color:#cdd6f4;font-size:.72rem;padding:2px 7px;border-radius:5px;cursor:pointer;transition:background .2s}
 .unit-btn:hover{background:#89b4fa;color:#1e1e2e}
 .alt-info{width:100%;font-size:.78rem;color:#a6adc8;padding:4px 0 0 2px}
+
+/* ── Legal Distance: label row with an info toggle, and its explanation box ── */
+.result-label-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px}
+.result-label-row .result-label{margin:0}
+.info-btn{background:none;border:none;color:#89b4fa;font-size:.9rem;cursor:pointer;padding:2px 4px;line-height:1;transition:color .2s}
+.info-btn:hover{color:#b4d0fb}
+.info-box{width:100%;font-size:.78rem;line-height:1.5;color:#a6adc8;background:#181825;border-radius:8px;padding:10px 12px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)}
+body.light .info-btn{color:#3a6bc4}
+body.light .info-btn:hover{color:#5585d4}
+body.light .info-box{color:#555570;background:#e8e8ee;box-shadow:inset 0 0 0 1px rgba(0,0,0,.05)}
 #error-msg{width:100%;background:#f38ba8;color:#1e1e2e;padding:9px 14px;border-radius:8px;font-size:.83rem;font-weight:500}
 
 /* ── Alternative route picker: one outer group box, each route its own sub-box ── */

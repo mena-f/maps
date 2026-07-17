@@ -87,9 +87,27 @@
 
     <!-- Result stats — hidden until a route is returned -->
     <div id="result" class="hidden">
-      <div id="txt-legal-distance" class="result-label">Legal Distance</div>
+      <div id="txt-total-distance" class="result-label">Total Distance</div>
       <div class="stat"><i class="fa fa-clock"></i> <span id="duration"></span></div>
       <div class="stat"><i class="fa fa-road"></i> <span id="distance"></span> <button id="unit-toggle" class="unit-btn">km</button></div>
+
+      <!-- Legal Distance: mileage/time counted only from where the route leaves the
+           origin city's border to the destination. Defaults to 0 (not hidden, not the
+           full trip) when the route never leaves that city or its border is unknown. -->
+      <div class="result-label-row">
+        <div id="txt-legal-distance" class="result-label">Legal Distance</div>
+        <button id="legal-info-btn" class="info-btn" type="button" title="What is Legal Distance?">
+          <i class="fa fa-circle-info"></i>
+        </button>
+      </div>
+      <div id="legal-info-box" class="info-box hidden">
+        Legal Distance counts only the part of the trip after you leave the city you're
+        starting from — the mileage and time from that city's border to your destination.
+        It shows 0 if the route never leaves your starting city.
+      </div>
+      <div class="stat"><i class="fa fa-clock"></i> <span id="legal-duration"></span></div>
+      <div class="stat"><i class="fa fa-road"></i> <span id="legal-distance"></span></div>
+
       <div id="alt-info" class="alt-info hidden"></div>
 
       <!-- Alternative routes: shown when the calculated trip has more than one option.
@@ -103,7 +121,13 @@
   <script>
     // ── App state ──
     let mode = "driving", useKm = false, distKm, distMi, currentLang = "en";
+    let legalDistKm, legalDistMi; // Legal Distance figures for the currently selected route
     const chosen = {}; // Stores pre-resolved lat/lon when user picks an autocomplete suggestion
+
+    // ── Legal Distance info box: click the (i) button to show/hide the explanation ──
+    document.getElementById("legal-info-btn").addEventListener("click", () => {
+      document.getElementById("legal-info-box").classList.toggle("hidden");
+    });
 
     // ── Load the default world map on first page load ──
     function loadDefaultMap() {
@@ -220,6 +244,8 @@
       currentRoutes = []; selectedRouteIndex = 0;
       // Reset distance/duration state
       distKm = null; distMi = null;
+      legalDistKm = null; legalDistMi = null;
+      document.getElementById("legal-info-box").classList.add("hidden");
       // Reload default world map
       loadDefaultMap();
     });
@@ -255,6 +281,7 @@
       document.getElementById("txt-get-route").textContent = t.getRoute;
       document.getElementById("unit-toggle").textContent  = useKm ? t.toggleKm : t.toggleMi;
       if (distKm != null) showDist();
+      showLegalDist();
     }
 
     // ── Travel mode buttons ──
@@ -270,12 +297,20 @@
       document.getElementById("unit-toggle").textContent =
         useKm ? TRANSLATIONS[currentLang].toggleKm : TRANSLATIONS[currentLang].toggleMi;
       if (distKm != null) showDist();
+      showLegalDist();
     });
 
     function showDist() {
       const t = TRANSLATIONS[currentLang];
       document.getElementById("distance").textContent =
         useKm ? `${distKm} ${t.toggleKm}` : `${distMi} ${t.toggleMi}`;
+    }
+
+    function showLegalDist() {
+      if (legalDistKm == null) return;
+      const t = TRANSLATIONS[currentLang];
+      document.getElementById("legal-distance").textContent =
+        useKm ? `${legalDistKm} ${t.toggleKm}` : `${legalDistMi} ${t.toggleMi}`;
     }
 
     // ── Alternative routes: pick one via the sidebar list, or by clicking its line on the map ──
@@ -294,6 +329,13 @@
       distMi = rt.distance_mi;
       showDist();
       document.getElementById("duration").textContent = formatDuration(rt.duration_min);
+
+      // Legal Distance: 0 min / 0 mi (or km) when the route never leaves the origin
+      // city, or its boundary couldn't be determined — never hidden, never the full trip.
+      legalDistKm = rt.legal_km ?? 0;
+      legalDistMi = rt.legal_mi ?? 0;
+      showLegalDist();
+      document.getElementById("legal-duration").textContent = formatDuration(rt.legal_min || 0);
     }
 
     function renderRouteList() {

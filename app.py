@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, send_from_directory
 from dotenv import load_dotenv
-import folium, requests, re, os
+import folium, requests, re, os, math
 
 # Load environment variables from .env file (keeps API keys out of code)
 load_dotenv()
@@ -10,11 +10,12 @@ load_dotenv()
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 
 # ── API endpoints ──
-NOM     = "https://nominatim.openstreetmap.org/search"   # Address search
-OSRM    = "https://router.project-osrm.org/route/v1"     # Driving routes
-ORS     = "https://api.openrouteservice.org/v2/directions" # Walking/cycling routes
-ORS_KEY = os.getenv("ORS_KEY")                            # Loaded from .env
-HDR     = {"User-Agent": "DestinationMapApp/1.0"}
+NOM         = "https://nominatim.openstreetmap.org/search"   # Address search
+NOM_REVERSE = "https://nominatim.openstreetmap.org/reverse"  # Coords → containing city boundary
+OSRM        = "https://router.project-osrm.org/route/v1"     # Driving routes
+ORS         = "https://api.openrouteservice.org/v2/directions" # Walking/cycling routes
+ORS_KEY     = os.getenv("ORS_KEY")                            # Loaded from .env
+HDR         = {"User-Agent": "DestinationMapApp/1.0"}
 
 # ── Route colors: (primary, alternative) ──
 PROFILES = {
@@ -82,6 +83,91 @@ def rank_times(routes):
         "fast" if m == fastest else "slow" if m == slowest else "mid"
         for m in mins_list
     ]
+
+def haversine_km(p1, p2):
+    """Great-circle distance in km between two (lat, lon) points."""
+    lat1, lon1 = p1
+    lat2, lon2 = p2
+    R = 6371
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return 2 * R * math.asin(math.sqrt(a))
+
+def _point_in_ring(lat, lon, ring):
+    """Standard ray-casting point-in-polygon test. `ring` is a list of [lon, lat] pairs."""
+    inside = False
+    n = len(ring)
+    j = n - 1
+    for i in range(n):
+        xi, yi = ring[i][0], ring[i][1]  # lon, lat
+        xj, yj = ring[j][0], ring[j][1]
+        if ((yi > lat) != (yj > lat)) and \
+           (lon < (xj - xi) * (lat - yi) / (yj - yi + 1e-12) + xi):
+            inside = not inside
+        j = i
+    return inside
+
+def point_in_geojson(lat, lon, geometry):
+    """True if (lat, lon) falls inside a GeoJSON Polygon or MultiPolygon geometry."""
+    if not geometry:
+        return False
+    gtype = geometry.get("type")
+    coords = geometry.get("coordinates")
+    if gtype == "Polygon":
+        polygons = [coords]
+    elif gtype == "MultiPolygon":
+        polygons = coords
+    else:
+        return False
+    for poly in polygons:
+        if not poly:
+            continue
+        outer, holes = poly[0], poly[1:]
+        if _point_in_ring(lat, lon, outer) and not any(_point_in_ring(lat, lon, h) for h in holes):
+            return True
+    return False
+
+def get_city_boundary(lat, lon):
+    """Look up the administrative boundary polygon for whichever city contains (lat, lon),
+    using Nominatim's reverse geocoder. Returns a GeoJSON geometry dict, or None if no
+    city-level boundary could be found (e.g. a rural point with no defined city polygon)."""
+    try:
+        r = requests.get(
+            NOM_REVERSE,
+            params={
+                "lat": lat, "lon": lon, "format": "json",
+                "zoom": 10, "polygon_geojson": 1,
+            },
+            headers=HDR, timeout=10,
+        )
+        data = r.json()
+        return data.get("geojson")
+    except Exception:
+        return None
+
+def compute_legal_distance(rt, boundary):
+    """Km/minutes from wherever this route first leaves the origin city's boundary,
+    to the destination. Returns (0, 0) if no boundary is known, or the route never
+    leaves it — per spec, this must default to 0 rather than the full route distance."""
+    if not boundary:
+        return 0.0, 0
+    coords = rt["coords"]
+    exit_idx = None
+    for i, (lat, lon) in enumerate(coords):
+        if not point_in_geojson(lat, lon, boundary):
+            exit_idx = i
+            break
+    if exit_idx is None:
+        return 0.0, 0
+    remaining = coords[exit_idx:]
+    dist_km = round(sum(haversine_km(remaining[i], remaining[i + 1]) for i in range(len(remaining) - 1)), 2)
+    # Approximate legal duration proportionally, based on the share of the route's
+    # total distance that falls after the city-boundary exit point.
+    frac = dist_km / rt["dist"] if rt["dist"] else 0
+    legal_min = round(rt["mins"] * frac)
+    return dist_km, legal_min
 
 def get_routes_driving(points):
     """Fetch driving route(s) from OSRM through every point in order (start, any stops, end).
@@ -372,12 +458,25 @@ def route():
     routes = get_routes(points, mode)
     if not routes: return jsonify({"error": "Could not calculate route."}), 500
 
+    # Legal Distance: miles/minutes from where the route exits the origin city's
+    # boundary to the destination. Boundary is looked up once per request (not per
+    # route) since every route shares the same origin.
+    city_boundary = get_city_boundary(*start)
+    for rt in routes:
+        legal_km, legal_min = compute_legal_distance(rt, city_boundary)
+        rt["legal_km"] = legal_km
+        rt["legal_mi"] = round(legal_km * 0.621371, 2)
+        rt["legal_min"] = legal_min
+
     best = routes[0]
     return jsonify({
         "map_html":     build_map(points, routes, mode),
         "distance_mi":  round(best["dist"] * 0.621371, 2),  # Convert km to miles
         "distance_km":  best["dist"],
         "duration_min": best["mins"],
+        "legal_mi":     best["legal_mi"],
+        "legal_km":     best["legal_km"],
+        "legal_min":    best["legal_min"],
         "alt_count":    len(routes) - 1,
         # Stats for every route option, in the same order as the lines drawn on the map,
         # so the sidebar route list can show/switch between them without another request.
@@ -386,6 +485,9 @@ def route():
                 "distance_mi":  round(rt["dist"] * 0.621371, 2),
                 "distance_km":  rt["dist"],
                 "duration_min": rt["mins"],
+                "legal_mi":     rt["legal_mi"],
+                "legal_km":     rt["legal_km"],
+                "legal_min":    rt["legal_min"],
                 "road":         rt.get("road"),   # main road for a short "via <road>" label
                 "rank":         rank,             # "fast" / "slow" / "mid" / null, for coloring
             }
