@@ -138,22 +138,80 @@ def build_map(points=None, routes=None, mode="driving"):
     if routes:
         color, alt_color = PROFILES[mode]
         all_pts = []
+        layer_names = [None] * len(routes)  # JS variable name of each route's line, by route index
 
-        # Draw alternative routes first (behind the best route)
-        for rt in routes[1:]:
-            folium.PolyLine(rt["coords"], color=alt_color, weight=4, opacity=0.6,
-                tooltip=f"Alt: {round(rt['dist'] * 0.621371, 2)} mi, {rt['mins']} min").add_to(m)
+        # Draw alternatives first so the selected route ends up on top, but track each
+        # line's original index so it lines up with the `routes` stats sent to the browser.
+        for i in range(len(routes) - 1, -1, -1):
+            rt = routes[i]
+            is_best = (i == 0)
+            line = folium.PolyLine(
+                rt["coords"],
+                color=color if is_best else alt_color,
+                weight=6 if is_best else 4,
+                opacity=0.9 if is_best else 0.6,
+                tooltip=f"{'Best' if is_best else 'Alt'}: {round(rt['dist'] * 0.621371, 2)} mi, {rt['mins']} min",
+            )
+            line.add_to(m)
+            layer_names[i] = line.get_name()
             all_pts += rt["coords"]
 
-        # Draw best route on top
-        best = routes[0]
-        folium.PolyLine(best["coords"], color=color, weight=6, opacity=0.9,
-            tooltip=f"Best: {round(best['dist'] * 0.621371, 2)} mi, {best['mins']} min").add_to(m)
-        all_pts += best["coords"]
-
-        # Auto-fit map bounds to show the full route
+        # Auto-fit map bounds to show every route
         m.fit_bounds([[min(p[0] for p in all_pts), min(p[1] for p in all_pts)],
                       [max(p[0] for p in all_pts), max(p[1] for p in all_pts)]])
+
+        # Thicken every route line automatically when zoomed out (so it stays easy to spot
+        # and hover/click), and — when there's more than one route — let clicking any line
+        # select it. Wrapped in setTimeout so it runs after Folium's own map/layer setup
+        # code, regardless of exactly where in the page that code ends up.
+        m.get_root().script.add_child(folium.Element(f"""
+            setTimeout(function() {{
+                var layers = [{",".join(layer_names)}];
+                var mainColor = {color!r}, altColor = {alt_color!r};
+                var selectable = layers.length > 1;
+                var selected = 0;
+
+                function weightFor(zoom, isSelected) {{
+                    var base = isSelected ? 6 : 4;
+                    var extra = zoom < 13 ? (13 - zoom) * 0.7 : 0;
+                    return Math.min(base + extra, base + 10);
+                }}
+
+                function restyle() {{
+                    var zoom = {m.get_name()}.getZoom();
+                    layers.forEach(function(layer, i) {{
+                        var isSelected = (i === selected);
+                        layer.setStyle({{
+                            color: isSelected ? mainColor : altColor,
+                            weight: weightFor(zoom, isSelected),
+                            opacity: isSelected ? 0.9 : 0.6,
+                        }});
+                        if (isSelected) layer.bringToFront();
+                    }});
+                }}
+
+                // Exposed so the parent page's sidebar route list can also select a route
+                window.__selectRoute = function(i) {{
+                    if (!selectable || i < 0 || i >= layers.length) return;
+                    selected = i;
+                    restyle();
+                }};
+
+                if (selectable) {{
+                    layers.forEach(function(layer, i) {{
+                        layer.on('click', function() {{
+                            window.__selectRoute(i);
+                            if (window.parent) {{
+                                window.parent.postMessage({{type: "routeSelected", index: i}}, "*");
+                            }}
+                        }});
+                    }});
+                }}
+
+                {m.get_name()}.on('zoomend', restyle);
+                restyle();
+            }}, 0);
+        """))
 
     # Add start, stop, and destination markers
     if points:
@@ -251,9 +309,16 @@ def route():
         "distance_km":  best["dist"],
         "duration_min": best["mins"],
         "alt_count":    len(routes) - 1,
-        # Sent back so the browser can run the optional live GPS trip timer
-        # without re-geocoding the destination itself.
-        "destination":  {"lat": end[0], "lon": end[1]},
+        # Stats for every route option, in the same order as the lines drawn on the map,
+        # so the sidebar route list can show/switch between them without another request.
+        "routes": [
+            {
+                "distance_mi":  round(rt["dist"] * 0.621371, 2),
+                "distance_km":  rt["dist"],
+                "duration_min": rt["mins"],
+            }
+            for rt in routes
+        ],
     })
 
 if __name__ == "__main__":
