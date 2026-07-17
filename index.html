@@ -4,10 +4,13 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Destination Map</title>
-  <link rel="stylesheet" href="/static/style.css"/>
+  <!-- ?v={{CSS_VERSION}}/{{JS_VERSION}} are cache-busters swapped in by the / route in
+       app.py, so browsers always fetch the latest CSS/JS after a deploy instead of
+       reusing a stale cached copy. -->
+  <link rel="stylesheet" href="/static/style.css?v={{CSS_VERSION}}"/>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
   <!-- Translations must load before the script block below -->
-  <script src="/static/translations.js"></script>
+  <script src="/static/translations.js?v={{JS_VERSION}}"></script>
 </head>
 <body>
 
@@ -303,9 +306,11 @@
         item.className = "route-option" + (i === selectedRouteIndex ? " active" : "");
         const rankClass = rt.rank ? ` time-${rt.rank}` : "";
         item.innerHTML =
-          `<div class="route-option-time${rankClass}">${formatDuration(rt.duration_min)}</div>` +
-          `<div class="route-option-dist">${rt.distance_mi} mi</div>` +
-          (rt.road ? `<div class="route-option-road">via ${rt.road}</div>` : "");
+          `<div class="route-option-road">${rt.road ? "via " + rt.road : "Route"}</div>` +
+          `<div class="route-option-stats">` +
+            `<div class="route-option-time${rankClass}">${formatDuration(rt.duration_min)}</div>` +
+            `<div class="route-option-dist">${rt.distance_mi} mi</div>` +
+          `</div>`;
         item.addEventListener("click", () => selectRoute(i));
         list.appendChild(item);
       });

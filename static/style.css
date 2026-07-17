@@ -101,22 +101,24 @@ body.light #map-loading .loading-box i{color:#3a6bc4}
 .alt-info{width:100%;font-size:.78rem;color:#a6adc8;padding:4px 0 0 2px}
 #error-msg{width:100%;background:#f38ba8;color:#1e1e2e;padding:9px 14px;border-radius:8px;font-size:.83rem;font-weight:500}
 
-/* ── Alternative route picker ── */
-#route-list{display:flex;flex-direction:column;gap:6px;width:100%}
-.route-option{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:10px;background:#313244;box-shadow:0 2px 6px rgba(0,0,0,.2);cursor:pointer;border:1px solid transparent;transition:all .2s}
+/* ── Alternative route picker: one outer group box, each route its own sub-box ── */
+#route-list{display:flex;flex-direction:column;gap:8px;width:100%;padding:10px;border-radius:12px;background:#181825;box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)}
+.route-option{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;background:#313244;box-shadow:0 2px 5px rgba(0,0,0,.2);cursor:pointer;border:1px solid transparent;transition:all .2s}
 .route-option:hover{border-color:#89b4fa}
 .route-option.active{border-color:#89b4fa;box-shadow:0 0 0 2px rgba(137,180,250,.35)}
-.route-option-time{font-size:.95rem;font-weight:700;color:#cdd6f4}
-.route-option-dist{font-size:.78rem;color:#a6adc8}
-.route-option-road{font-size:.72rem;color:#6c6c8a;margin-top:2px}
+.route-option-road{flex:1;min-width:0;font-size:.8rem;color:#cdd6f4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.route-option-stats{flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end}
+.route-option-time{font-size:.9rem;font-weight:700;color:#cdd6f4;line-height:1.2}
+.route-option-dist{font-size:.74rem;color:#a6adc8;line-height:1.2}
 .time-fast{color:#a6e3a1}
 .time-slow{color:#f38ba8}
 .time-mid{color:#a6adc8}
 body.light .result-label{color:#555570}
-body.light .route-option{background:#e8e8ee;box-shadow:0 2px 6px rgba(0,0,0,.08)}
+body.light #route-list{background:#e2e2ea;box-shadow:inset 0 0 0 1px rgba(0,0,0,.05)}
+body.light .route-option{background:#f7f7fb;box-shadow:0 2px 5px rgba(0,0,0,.08)}
+body.light .route-option-road{color:#2e2e3e}
 body.light .route-option-time{color:#2e2e3e}
 body.light .route-option-dist{color:#666680}
-body.light .route-option-road{color:#8888a0}
 body.light .time-mid{color:#666680}
 body.light .time-fast{color:#2e7d32}
 body.light .time-slow{color:#c0392b}

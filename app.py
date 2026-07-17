@@ -164,13 +164,13 @@ def build_map(points=None, routes=None, mode="driving"):
         <style>
         .leaflet-tile { filter: saturate(0.75) brightness(1.02); }
         .route-badge {
-            background:#fff; color:#202124; border-radius:8px; padding:6px 10px;
-            font-family:"Segoe UI",sans-serif; font-size:.78rem; line-height:1.25;
-            text-align:center; white-space:nowrap; cursor:pointer;
-            box-shadow:0 1px 4px rgba(0,0,0,.35); transform:translate(-50%,-100%);
+            background:#fff; color:#202124; border-radius:12px; padding:12px 18px;
+            font-family:"Segoe UI",sans-serif; font-size:1rem; line-height:1.35;
+            text-align:center; white-space:nowrap; cursor:pointer; min-width:76px;
+            box-shadow:0 2px 8px rgba(0,0,0,.4); transform:translate(-50%,-100%);
         }
-        .route-badge-time { font-weight:700; }
-        .route-badge-dist { font-size:.7rem; color:#5f6368; }
+        .route-badge-time { font-weight:700; font-size:1.05rem; }
+        .route-badge-dist { font-size:.85rem; color:#5f6368; margin-top:2px; }
         .route-badge.rank-fast .route-badge-time { color:#188038; }
         .route-badge.rank-slow .route-badge-time { color:#d93025; }
         .route-badge.rank-mid  .route-badge-time { color:#5f6368; }
@@ -291,8 +291,16 @@ def build_map(points=None, routes=None, mode="driving"):
 
 @app.route("/")
 def index():
-    """Serve the standalone index.html directly (no templates/ folder, no Jinja)."""
-    return send_from_directory(app.root_path, "index.html")
+    """Serve the standalone index.html directly (no templates/ folder, no Jinja) — but
+    with the CSS/JS version placeholders swapped for each file's real last-modified time,
+    so the browser is forced to fetch fresh static files instead of a stale cached copy
+    whenever style.css or translations.js actually change."""
+    with open(os.path.join(app.root_path, "index.html"), encoding="utf-8") as f:
+        html = f.read()
+    css_mtime = int(os.path.getmtime(os.path.join(app.root_path, "static", "style.css")))
+    js_mtime  = int(os.path.getmtime(os.path.join(app.root_path, "static", "translations.js")))
+    html = html.replace("{{CSS_VERSION}}", str(css_mtime)).replace("{{JS_VERSION}}", str(js_mtime))
+    return html
 
 @app.route("/map")
 def map_default():
